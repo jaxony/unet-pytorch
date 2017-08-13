@@ -37,16 +37,6 @@ def conv1x1(in_channels, out_channels, groups=1):
         groups=groups,
         stride=1)
 
-def weight_init(m):
-    if isinstance(m, nn.Conv2d):
-        init.xavier_uniform(m.weight.data)
-        init.constant(m.bias.data, 0)
-        
-
-def reset_params(module):
-    for i, m in enumerate(module.modules()):
-        weight_init(m)
-
 
 class DownConv(nn.Module):
     """
@@ -65,8 +55,6 @@ class DownConv(nn.Module):
 
         if self.pooling:
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        reset_params(self)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -102,7 +90,6 @@ class UpConv(nn.Module):
             self.conv1 = conv3x3(self.out_channels, self.out_channels)
         self.conv2 = conv3x3(self.out_channels, self.out_channels)
 
-        reset_params(self)
 
     def forward(self, from_down, from_up):
         """ Forward pass
@@ -205,7 +192,22 @@ class UNet(nn.Module):
 
         self.conv_final = conv1x1(outs, self.num_classes)
 
-        reset_params(self)
+        # add the list of modules to current module
+        self.down_convs = nn.ModuleList(self.down_convs)
+        self.up_convs = nn.ModuleList(self.up_convs)
+
+        self.reset_params()
+
+    @staticmethod
+    def weight_init(m):
+        if isinstance(m, nn.Conv2d):
+            init.xavier_uniform(m.weight.data)
+            init.constant(m.bias.data, 0)
+
+
+    def reset_params(self):
+        for i, m in enumerate(self.modules()):
+            self.weight_init(m)
 
 
     def forward(self, x):
@@ -229,7 +231,7 @@ if __name__ == "__main__":
     testing
     """
     model = UNet(3, depth=5, merge_mode='add')
-    x = Variable(torch.FloatTensor(np.random.random((1, 3, 320, 320))))
-    out = model(x)
-    loss = torch.sum(out)
-    loss.backward()
+    # x = Variable(torch.FloatTensor(np.random.random((1, 3, 320, 320))))
+    # out = model(x)
+    # loss = torch.sum(out)
+    # loss.backward()
