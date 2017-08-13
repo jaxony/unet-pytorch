@@ -37,6 +37,16 @@ def conv1x1(in_channels, out_channels, groups=1):
         groups=groups,
         stride=1)
 
+def weight_init(m):
+    if isinstance(m, nn.Conv2d):
+        init.xavier_uniform(m.weight.data)
+        init.constant(m.bias.data, 0)
+        
+
+def reset_params(module):
+    for i, m in enumerate(module.modules()):
+        weight_init(m)
+
 
 class DownConv(nn.Module):
     """
@@ -55,6 +65,8 @@ class DownConv(nn.Module):
 
         if self.pooling:
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        reset_params(self)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -90,6 +102,8 @@ class UpConv(nn.Module):
             self.conv1 = conv3x3(self.out_channels, self.out_channels)
         self.conv2 = conv3x3(self.out_channels, self.out_channels)
 
+        reset_params(self)
+
     def forward(self, from_down, from_up):
         """ Forward pass
         Arguments:
@@ -124,8 +138,9 @@ class UNet(nn.Module):
         UNet(merge_mode='add')
     """
 
-    def __init__(self, in_channels=3, depth=5, start_filts=64, 
-                 up_mode='transpose', merge_mode='concat'):
+    def __init__(self, num_classes, in_channels=3, depth=5, 
+                 start_filts=64, up_mode='transpose', 
+                 merge_mode='concat'):
         """
         Arguments:
             in_channels: int, number of channels in the input tensor.
@@ -162,6 +177,7 @@ class UNet(nn.Module):
                              "nearest neighbour to reduce "
                              "depth channels (by half).")
 
+        self.num_classes = num_classes
         self.in_channels = in_channels
         self.start_filts = start_filts
         self.depth = depth
@@ -183,10 +199,13 @@ class UNet(nn.Module):
         for i in range(depth-1):
             ins = outs
             outs = ins // 2
-            print(ins, outs)
             up_conv = UpConv(ins, outs, up_mode=up_mode,
                 merge_mode=merge_mode)
             self.up_convs.append(up_conv)
+
+        self.conv_final = conv1x1(outs, self.num_classes)
+
+        reset_params(self)
 
 
     def forward(self, x):
@@ -195,13 +214,13 @@ class UNet(nn.Module):
         # encoder pathway, save outputs for merging
         for i, module in enumerate(self.down_convs):
             x, before_pool = module(x)
-            print("$$$", before_pool.size())
             encoder_outs.append(before_pool)
 
         for i, module in enumerate(self.up_convs):
-            print(-(i+2))
             before_pool = encoder_outs[-(i+2)]
             x = module(before_pool, x)
+
+        x = F.softmax(self.conv_final(x))
         return x
 
 
@@ -209,7 +228,7 @@ if __name__ == "__main__":
     """
     testing
     """
-    model = UNet(depth=5, merge_mode='add')
+    model = UNet(3, depth=5, merge_mode='add')
     x = Variable(torch.FloatTensor(np.random.random((1, 3, 320, 320))))
     out = model(x)
     loss = torch.sum(out)
