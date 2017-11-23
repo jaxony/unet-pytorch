@@ -27,7 +27,9 @@ def upconv2x2(in_channels, out_channels, mode='transpose'):
     else:
         # out_channels is always going to be the same
         # as in_channels
-        return nn.Upsample(scale_factor=(2, 2, 1))
+        return nn.Sequential(
+            nn.Upsample(mode='bilinear', scale_factor=2),
+            conv1x1(in_channels, out_channels))
 
 def conv1x1(in_channels, out_channels, groups=1):
     return nn.Conv2d(
@@ -99,7 +101,6 @@ class UpConv(nn.Module):
         """
         from_up = self.upconv(from_up)
         if self.merge_mode == 'concat':
-            print(from_down.size(), from_up.size())
             x = torch.cat((from_up, from_down), 1)
         else:
             x = from_up + from_down
@@ -123,6 +124,12 @@ class UNet(nn.Module):
     (2) merging outputs does not require cropping due to (1)
     (3) residual connections can be used by specifying
         UNet(merge_mode='add')
+    (4) if non-parametric upsampling is used in the decoder
+        pathway (specified by upmode='upsample'), then an
+        additional 1x1 2d convolution occurs after upsampling
+        to reduce channel dimensionality by a factor of 2.
+        This channel halving happens with the convolution in
+        the tranpose convolution (specified by upmode='transpose')
     """
 
     def __init__(self, num_classes, in_channels=3, depth=5, 
@@ -201,8 +208,8 @@ class UNet(nn.Module):
     @staticmethod
     def weight_init(m):
         if isinstance(m, nn.Conv2d):
-            init.xavier_uniform(m.weight.data)
-            init.constant(m.bias.data, 0)
+            init.xavier_normal(m.weight)
+            init.constant(m.bias, 0)
 
 
     def reset_params(self):
@@ -212,7 +219,7 @@ class UNet(nn.Module):
 
     def forward(self, x):
         encoder_outs = []
-        
+         
         # encoder pathway, save outputs for merging
         for i, module in enumerate(self.down_convs):
             x, before_pool = module(x)
@@ -221,17 +228,19 @@ class UNet(nn.Module):
         for i, module in enumerate(self.up_convs):
             before_pool = encoder_outs[-(i+2)]
             x = module(before_pool, x)
-
-        x = F.softmax(self.conv_final(x))
+        
+        # No softmax is used. This means you need to use
+        # nn.CrossEntropyLoss is your training script,
+        # as this module includes a softmax already.
+        x = self.conv_final(x)
         return x
-
 
 if __name__ == "__main__":
     """
     testing
     """
-    model = UNet(3, depth=5, merge_mode='add')
-    # x = Variable(torch.FloatTensor(np.random.random((1, 3, 320, 320))))
-    # out = model(x)
-    # loss = torch.sum(out)
-    # loss.backward()
+    model = UNet(3, depth=5, merge_mode='concat')
+    x = Variable(torch.FloatTensor(np.random.random((1, 3, 320, 320))))
+    out = model(x)
+    loss = torch.sum(out)
+    loss.backward()
