@@ -20,7 +20,7 @@ I had some trouble getting the pixel-wise loss working correctly for a semantic 
 Here's how I got it working in the end.
 
 ```python
-import model
+from model import UNet
 
 model = UNet()
 
